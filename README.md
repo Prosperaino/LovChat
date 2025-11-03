@@ -78,6 +78,9 @@ and host it somewhere HTTP-accessible:
    `.tar.gz`, `.tgz`, `.tar.bz2`, and `.zip` files and will download/extract the vector store at
    startup.
 
+You can automate steps 1–3 with `scripts/prebuild_vector_store.py`, which builds the index, writes an
+artifact (default `dist/vector_store.tar.gz`), and optionally uploads it to a provided URL.
+
 ### Using Elasticsearch instead of the TF-IDF store
 
 If you set `GPTLOV_SEARCH_BACKEND=elasticsearch`, GPTLov will stream the chunks into an
