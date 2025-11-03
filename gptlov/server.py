@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from .bot import GPTLovBot
@@ -16,6 +19,20 @@ logger = logging.getLogger(__name__)
 app = FastAPI(title="GPTLov", version="0.1.0")
 
 _bot: Optional[GPTLovBot] = None
+_base_dir = Path(__file__).resolve().parent
+_static_dir = _base_dir / "static"
+_template_path = _base_dir / "templates" / "index.html"
+
+if _static_dir.exists():
+    app.mount("/static", StaticFiles(directory=_static_dir), name="static")
+else:
+    logger.warning("Static assets directory '%s' was not found.", _static_dir)
+
+try:
+    _index_html = _template_path.read_text(encoding="utf-8")
+except FileNotFoundError:
+    logger.warning("Frontend template '%s' was not found.", _template_path)
+    _index_html = None
 
 
 class AskRequest(BaseModel):
@@ -82,9 +99,8 @@ async def ask(request: AskRequest) -> AskResponse:
     return AskResponse(answer=result["answer"], sources=sources)
 
 
-@app.get("/")
-async def root() -> Dict[str, str]:
-    return {
-        "message": "Welcome to GPTLov.",
-        "docs": "/docs",
-    }
+@app.get("/", response_class=HTMLResponse)
+async def root() -> HTMLResponse:
+    if _index_html is None:
+        raise HTTPException(status_code=503, detail="Frontend is not available")
+    return HTMLResponse(content=_index_html)

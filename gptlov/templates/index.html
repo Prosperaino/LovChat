@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="no">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>GPTLov – Juridisk innsikt med norsk eleganse</title>
+    <link rel="stylesheet" href="/static/style.css" />
+  </head>
+  <body>
+    <main>
+      <section class="page">
+        <header class="brand">
+          <span class="crest" aria-hidden="true"></span>
+          <div>
+            <h1>GPTLov</h1>
+            <p class="intro">
+              Spør om norsk lovgivning, og få svar tuftet på åpne kilder og nordisk presisjon.
+            </p>
+          </div>
+        </header>
+
+        <section class="prompt-card" aria-labelledby="prompt-title">
+          <h2 id="prompt-title">Hva ønsker du å vite?</h2>
+          <form id="gptlov-form">
+            <textarea
+              id="question"
+              name="question"
+              placeholder="Eks: Hvilke plikter har arbeidsgiver ved hjemmekontor?"
+              aria-label="Spørsmål om norsk lov"
+              required
+            ></textarea>
+            <div class="suggestions" aria-label="Eksempler">
+              <button type="button" class="suggestion" data-question="Hvordan definerer plan- og bygningsloven midlertidige bygg?">
+                Midlertidige bygg
+              </button>
+              <button type="button" class="suggestion" data-question="Hva sier arbeidsmiljøloven om overtid for deltidsansatte?">
+                Overtid for deltidsansatte
+              </button>
+              <button type="button" class="suggestion" data-question="Hvilke krav stilles til personvern ved kameraovervåking i borettslag?">
+                Kameraovervåking i borettslag
+              </button>
+              <button type="button" class="suggestion" data-question="Hva er fristen for å klage på et vedtak om byggesøknad?">
+                Klagefrist på byggesøknad
+              </button>
+            </div>
+            <button type="submit">
+              Still spørsmålet
+              <span aria-hidden="true">→</span>
+            </button>
+          </form>
+          <div class="status" id="status" role="status" aria-live="polite"></div>
+        </section>
+
+        <section class="results" id="results" aria-live="polite">
+          <article class="answer" id="answer"></article>
+          <div>
+            <h3>Kilder</h3>
+            <div class="sources" id="sources"></div>
+          </div>
+        </section>
+      </section>
+    </main>
+
+    <footer>
+      Laget for Norge &nbsp;|&nbsp; Basert på åpne lovdata med intelligent søk
+    </footer>
+
+    <script src="/static/app.js" defer></script>
+  </body>
+</html>
