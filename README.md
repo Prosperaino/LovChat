@@ -79,6 +79,47 @@ lovchat chat --workspace data/workspace --question "Hva er hjemmelen for forskri
 
 LovChat displays the generated answer (or the best matching excerpts) alongside the top sources used.
 
+## Run the API server locally
+
+LovChat ships with a FastAPI application that exposes the chatbot via HTTP.
+
+```bash
+uvicorn lovchat.server:app --reload --port 8000
+```
+
+- `GET /health` – health probe returning `{ "status": "ok" }`
+- `POST /ask` – accepts `{ "question": "...", "top_k": 5 }` and returns the generated answer with sources.
+
+Visit `http://localhost:8000/docs` for the interactive Swagger UI.
+
+## Deploy to Render
+
+1. Push this repository to GitHub (already under `Prosperaino/LovChat`).
+2. Log in to https://render.com and click **New +** → **Blueprint**. Select the repository and ensure Render sees the `render.yaml` file in the root.
+3. Review the service configuration:
+   - Environment: Python
+   - Build command: `pip install --upgrade pip && pip install -e .`
+   - Start command: `uvicorn lovchat.server:app --host 0.0.0.0 --port 10000`
+   - Persistent disk is not required; Render provides an ephemeral disk for the vector store build on startup.
+4. Add the environment variables:
+   - `OPENAI_API_KEY` (optional but required for model-generated answers)
+   - `LOVCHAT_RAW_DATA_DIR=data/raw`
+   - `LOVCHAT_WORKSPACE_DIR=data/workspace`
+   - (Optional) `LOVCHAT_ARCHIVES` with a comma-separated list of Lovdata archive filenames if you want to override the defaults (`gjeldende-lover.tar.bz2,gjeldende-sentrale-forskrifter.tar.bz2`).
+5. Click **Deploy**. On service startup LovChat downloads the public Lovdata archives, builds the TF-IDF vector store, and serves the API.
+
+### Custom domain `gptlov.no`
+
+Once the Render deployment is live:
+
+1. In the Render dashboard, open the LovChat service → **Settings** → **Custom Domains** → **Add Custom Domain**.
+2. Enter `gptlov.no` (and optionally `www.gptlov.no`). Render will show the required DNS target (a CNAME record pointing to `your-service.onrender.com`).
+3. In your domain registrar's DNS control panel (where `gptlov.no` is registered), create:
+   - A CNAME record for `www` pointing to the Render-provided hostname (e.g. `lovchat.onrender.com`).
+   - If you want the apex (`gptlov.no` without `www`), add an ALIAS/ANAME record pointing to the same Render hostname, or use a URL redirect to `www.gptlov.no` if your registrar supports it.
+4. Wait for DNS propagation (usually a few minutes). Render will automatically generate TLS certificates once the DNS records resolve correctly.
+5. Verify by browsing to `https://gptlov.no`.
+
 ## License
 
 This project mirrors and interacts with content licensed under the Norwegian Licence for Open Data (NLOD 2.0).

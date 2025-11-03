@@ -40,7 +40,9 @@ def extract_archives(raw_dir: Path, extract_dir: Path, force: bool = False) -> l
     extracted_roots: list[Path] = []
 
     for archive in sorted(raw_dir.glob("*.tar*")):
-        target_root = extract_dir / archive.stem
+        name = archive.name
+        target_name = name.split(".tar", 1)[0]
+        target_root = extract_dir / target_name
         if target_root.exists() and not force:
             extracted_roots.append(target_root)
             continue

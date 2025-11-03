@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: lovchat
+    env: python
+    plan: free
+    buildCommand: pip install --upgrade pip && pip install -e .
+    startCommand: uvicorn lovchat.server:app --host 0.0.0.0 --port 10000
+    autoDeploy: true
+    envVars:
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: LOVCHAT_RAW_DATA_DIR
+        value: data/raw
+      - key: LOVCHAT_WORKSPACE_DIR
+        value: data/workspace
