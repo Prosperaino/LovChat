@@ -11,6 +11,7 @@ from openai import OpenAI
 from sklearn.metrics.pairwise import cosine_similarity
 
 from .index import VectorStore
+from .search_backends import ElasticsearchBackend
 from .settings import settings
 
 
@@ -28,8 +29,22 @@ class GPTLovBot:
     _PARAGRAPH_PATTERN = re.compile(r"§\s*\d+[a-zA-Z]?(?:-\d+[a-zA-Z]?)?")
     _CHAPTER_PATTERN = re.compile(r"kapittel\s+([\dIVX]+[a-zA-Z]?)", re.IGNORECASE)
 
-    def __init__(self, store_path: str | os.PathLike[str], model: str | None = None):
-        self.store = VectorStore.load(Path(store_path))
+    def __init__(self, store_path: str | os.PathLike[str] | None, model: str | None = None):
+        self.mode = settings.search_backend
+        if self.mode == "elasticsearch":
+            self.store: VectorStore | None = None
+            self._es_backend = ElasticsearchBackend(
+                host=settings.es_host or "",
+                index=settings.es_index,
+                username=settings.es_username,
+                password=settings.es_password,
+                verify_certs=settings.es_verify_certs,
+            )
+        else:
+            if store_path is None:
+                raise RuntimeError("Vector store path is required when using the sklearn backend.")
+            self.store = VectorStore.load(Path(store_path))
+            self._es_backend = None
         self.model = model or settings.openai_model
         self._client: OpenAI | None = None
 
@@ -50,10 +65,22 @@ class GPTLovBot:
 
     def retrieve(self, question: str, top_k: int | None = None) -> List[RetrievalResult]:
         top_k = top_k or settings.top_k
+        law_terms, paragraph_terms, chapter_terms = self._extract_query_hints(question)
+
+        if self.mode == "elasticsearch":
+            return self._retrieve_elasticsearch(
+                question,
+                top_k,
+                law_terms=law_terms,
+                paragraph_terms=paragraph_terms,
+                chapter_terms=chapter_terms,
+            )
+
+        if not self.store:
+            raise RuntimeError("Vector store not initialised.")
+
         query_vector = self.store.vectorizer.transform([question])
         scores = cosine_similarity(self.store.matrix, query_vector).ravel()
-
-        law_terms, paragraph_terms, chapter_terms = self._extract_query_hints(question)
 
         candidate_count = min(len(scores), max(top_k * 8, top_k + 80, 80))
         candidate_indices = np.argsort(scores)[::-1][:candidate_count]
@@ -87,6 +114,34 @@ class GPTLovBot:
         )
         return reranked[:top_k]
 
+    def _retrieve_elasticsearch(
+        self,
+        question: str,
+        top_k: int,
+        *,
+        law_terms: set[str],
+        paragraph_terms: set[str],
+        chapter_terms: set[str],
+    ) -> List[RetrievalResult]:
+        if not self._es_backend:
+            raise RuntimeError("Elasticsearch backend is not configured.")
+        raw_results = self._es_backend.retrieve(question, top_k)
+        candidates = [
+            RetrievalResult(
+                score=float(entry.get("score", 0.0)),
+                content=str(entry.get("content", "")),
+                metadata=dict(entry.get("metadata", {})),
+            )
+            for entry in raw_results
+        ]
+        reranked = self._rerank_candidates(
+            law_terms=law_terms,
+            paragraph_terms=paragraph_terms,
+            chapter_terms=chapter_terms,
+            candidates=candidates,
+        )
+        return reranked[:top_k]
+
     def _extract_query_hints(
         self, question: str
     ) -> tuple[set[str], set[str], set[str]]:
@@ -105,6 +160,8 @@ class GPTLovBot:
         return law_terms, paragraph_terms, chapter_terms
 
     def _find_metadata_matches(self, law_terms: set[str], scores: np.ndarray) -> list[int]:
+        if not self.store:
+            return []
         if not law_terms:
             return []
 

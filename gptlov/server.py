@@ -40,10 +40,13 @@ class AskResponse(BaseModel):
 async def startup_event() -> None:
     global _bot
     loop = asyncio.get_event_loop()
-    logger.info("Ensuring vector store is available...")
+    logger.info("Preparing search backend (%s)...", settings.search_backend)
     store_path = await loop.run_in_executor(None, ensure_vector_store)
     _bot = GPTLovBot(store_path=store_path)
-    logger.info("GPTLovBot initialised with store at %s", store_path)
+    if store_path:
+        logger.info("GPTLovBot initialised with vector store at %s", store_path)
+    else:
+        logger.info("GPTLovBot initialised using Elasticsearch index '%s'", settings.es_index)
 
 
 @app.get("/health")
@@ -53,7 +56,7 @@ async def health() -> Dict[str, str]:
 
 def _get_bot() -> GPTLovBot:
     if _bot is None:
-        raise HTTPException(status_code=503, detail="Vector store not ready")
+        raise HTTPException(status_code=503, detail="Search backend not ready")
     return _bot
 
 

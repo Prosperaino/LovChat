@@ -65,6 +65,21 @@ gptlov build-index \
 The command extracts the archives, chunks the HTML/XML documents, and saves a TF-IDF index at
 `data/workspace/vector_store.pkl`.
 
+### Using Elasticsearch instead of the TF-IDF store
+
+If you set `GPTLOV_SEARCH_BACKEND=elasticsearch`, GPTLov will stream the chunks into an
+Elasticsearch cluster instead of building the local TF-IDF matrix (which is useful on memory
+constrained hosts such as Render Free web services). Provide the following additional environment
+variables:
+
+- `GPTLOV_ES_HOST` – e.g. `https://<user>:<password>@<your-elasticsearch-host>:9243`
+- `GPTLOV_ES_INDEX` – index name to use (defaults to `gptlov`)
+- (Optional) `GPTLOV_ES_USERNAME` / `GPTLOV_ES_PASSWORD` if you prefer to pass credentials separately
+- (Optional) `GPTLOV_ES_VERIFY_CERTS=false` if you need to disable certificate verification
+
+The `gptlov build-index` command will push chunks into Elasticsearch, and the chatbot will query the
+index at runtime.
+
 ## Chat with GPTLov
 
 Interactive mode:
@@ -107,8 +122,12 @@ Visit `http://localhost:8000/docs` for the interactive Swagger UI.
    - `OPENAI_API_KEY` (optional but required for model-generated answers)
    - `GPTLOV_RAW_DATA_DIR=data/raw`
    - `GPTLOV_WORKSPACE_DIR=data/workspace`
+   - `GPTLOV_SEARCH_BACKEND=elasticsearch`
+   - `GPTLOV_ES_HOST=https://<user>:<password>@<your-elasticsearch-host>`
+   - `GPTLOV_ES_INDEX=gptlov`
    - (Optional) `GPTLOV_ARCHIVES` with a comma-separated list of Lovdata archive filenames if you want to override the defaults (`gjeldende-lover.tar.bz2,gjeldende-sentrale-forskrifter.tar.bz2`).
-5. Click **Deploy**. On service startup GPTLov downloads the public Lovdata archives, builds the TF-IDF vector store, and serves the API.
+5. Click **Deploy**. On service startup GPTLov downloads the public Lovdata archives, pushes the chunks
+   to Elasticsearch, and serves the API.
 
 ### Custom domain `gptlov.no`
 

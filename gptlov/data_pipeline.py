@@ -8,6 +8,7 @@ import httpx
 
 from .ingest import build_chunks, extract_archives
 from .index import build_vector_store
+from .search_backends import ElasticsearchBackend
 from .settings import settings
 
 logger = logging.getLogger(__name__)
@@ -51,7 +52,25 @@ def ensure_archives(filenames: Iterable[str] | None = None, force: bool = False)
     return paths
 
 
-def ensure_vector_store(force: bool = False) -> Path:
+def ensure_vector_store(force: bool = False) -> Path | None:
+    if settings.search_backend == "elasticsearch":
+        ensure_archives(force=force)
+        workspace_dir = settings.workspace_dir
+        extracted_root = workspace_dir / "extracted"
+        extracted_dirs = extract_archives(settings.raw_data_dir, extracted_root, force=force)
+        chunks = build_chunks(extracted_dirs)
+        logger.info("Built %d document chunks for Elasticsearch", len(chunks))
+
+        backend = ElasticsearchBackend(
+            host=settings.es_host or "",
+            index=settings.es_index,
+            username=settings.es_username,
+            password=settings.es_password,
+            verify_certs=settings.es_verify_certs,
+        )
+        backend.index_documents(chunks, force=force)
+        return None
+
     workspace_dir = settings.workspace_dir
     store_path = workspace_dir / "vector_store.pkl"
     if store_path.exists() and not force:

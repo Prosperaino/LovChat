@@ -7,6 +7,7 @@ from pathlib import Path
 from .bot import GPTLovBot
 from .ingest import build_chunks, extract_archives
 from .index import build_vector_store
+from .search_backends import ElasticsearchBackend
 from .settings import settings
 
 
@@ -23,8 +24,19 @@ def command_build_index(args: argparse.Namespace) -> None:
     chunks = build_chunks(extracted_dirs, chunk_size=args.chunk_size, overlap=args.overlap)
     print(f"Created {len(chunks)} document chunks")
 
-    store_path = build_vector_store(chunks, workspace)
-    print(f"Vector store saved to {store_path}")
+    if settings.search_backend == "elasticsearch":
+        backend = ElasticsearchBackend(
+            host=settings.es_host or "",
+            index=settings.es_index,
+            username=settings.es_username,
+            password=settings.es_password,
+            verify_certs=settings.es_verify_certs,
+        )
+        backend.index_documents(chunks, force=args.force)
+        print(f"Indexed chunks into Elasticsearch index '{settings.es_index}'")
+    else:
+        store_path = build_vector_store(chunks, workspace)
+        print(f"Vector store saved to {store_path}")
 
 
 def format_answer(result: dict[str, object], top_sources: int) -> str:
@@ -40,11 +52,15 @@ def format_answer(result: dict[str, object], top_sources: int) -> str:
 
 def command_chat(args: argparse.Namespace) -> None:
     workspace = Path(args.workspace).expanduser().resolve()
-    store_path = Path(args.store).expanduser().resolve() if args.store else workspace / "vector_store.pkl"
+    store_path: Path | None = None
 
-    if not store_path.exists():
-        print(f"Vector store not found at {store_path}. Run 'gptlov build-index' first.", file=sys.stderr)
-        raise SystemExit(1)
+    if settings.search_backend == "elasticsearch":
+        store_path = None
+    else:
+        store_path = Path(args.store).expanduser().resolve() if args.store else workspace / "vector_store.pkl"
+        if not store_path.exists():
+            print(f"Vector store not found at {store_path}. Run 'gptlov build-index' first.", file=sys.stderr)
+            raise SystemExit(1)
 
     bot = GPTLovBot(store_path=store_path, model=args.model)
 

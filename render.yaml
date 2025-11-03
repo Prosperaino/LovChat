@@ -13,3 +13,9 @@ services:
         value: data/raw
       - key: GPTLOV_WORKSPACE_DIR
         value: data/workspace
+      - key: GPTLOV_SEARCH_BACKEND
+        value: elasticsearch
+      - key: GPTLOV_ES_HOST
+        sync: false
+      - key: GPTLOV_ES_INDEX
+        value: gptlov

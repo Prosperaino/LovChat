@@ -27,6 +27,16 @@ class Settings:
     )
     openai_model: str = _getenv("GPTLOV_OPENAI_MODEL", "LOVCHAT_OPENAI_MODEL") or "gpt-4o-mini"
     top_k: int = int(_getenv("GPTLOV_TOP_K", "LOVCHAT_TOP_K") or "5")
+    search_backend: str = (_getenv("GPTLOV_SEARCH_BACKEND") or "sklearn").lower()
+    es_host: str | None = _getenv("GPTLOV_ES_HOST", "ELASTICSEARCH_URL")
+    es_index: str = _getenv("GPTLOV_ES_INDEX") or "gptlov"
+    es_username: str | None = _getenv("GPTLOV_ES_USERNAME")
+    es_password: str | None = _getenv("GPTLOV_ES_PASSWORD")
+    es_verify_certs: bool = (_getenv("GPTLOV_ES_VERIFY_CERTS") or "true").lower() not in {
+        "0",
+        "false",
+        "no",
+    }
     archives: tuple[str, ...] = field(default_factory=tuple)
 
     def ensure_directories(self) -> None:
@@ -42,6 +52,17 @@ class Settings:
             self.archives = (
                 "gjeldende-lover.tar.bz2",
                 "gjeldende-sentrale-forskrifter.tar.bz2",
+            )
+
+        if self.search_backend not in {"sklearn", "elasticsearch"}:
+            raise ValueError(
+                f"Unsupported GPTLOV_SEARCH_BACKEND='{self.search_backend}'. "
+                "Use 'sklearn' or 'elasticsearch'."
+            )
+
+        if self.search_backend == "elasticsearch" and not self.es_host:
+            raise ValueError(
+                "GPTLOV_ES_HOST/ELASTICSEARCH_URL must be set when using the Elasticsearch backend."
             )
 
 
