@@ -22,15 +22,18 @@ def command_build_index(args: argparse.Namespace) -> None:
     print(f"Extracted {len(extracted_dirs)} archive folders")
 
     if settings.search_backend == "elasticsearch":
-        chunk_iterator = iter_chunks(
-            extracted_dirs, chunk_size=args.chunk_size, overlap=args.overlap
-        )
         backend = ElasticsearchBackend(
             host=settings.es_host or "",
             index=settings.es_index,
             username=settings.es_username,
             password=settings.es_password,
             verify_certs=settings.es_verify_certs,
+        )
+        if not args.force and backend.has_documents():
+            print(f"Elasticsearch index '{settings.es_index}' already contains documents. Use --force to re-index.")
+            return
+        chunk_iterator = iter_chunks(
+            extracted_dirs, chunk_size=args.chunk_size, overlap=args.overlap
         )
         indexed = backend.index_documents(chunk_iterator, force=args.force)
         print(f"Indexed {indexed} chunks into Elasticsearch index '{settings.es_index}'")

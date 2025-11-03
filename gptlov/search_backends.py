@@ -69,6 +69,19 @@ class ElasticsearchBackend:
                 },
             )
 
+    def index_exists(self) -> bool:
+        return bool(self.client.indices.exists(index=self.index))
+
+    def has_documents(self) -> bool:
+        if not self.index_exists():
+            return False
+        try:
+            resp = self.client.count(index=self.index)
+        except Exception:
+            logger.exception("Failed to count documents in index '%s'", self.index)
+            return False
+        return resp.get("count", 0) > 0
+
     def index_documents(self, chunks: Iterable[DocumentChunk], force: bool = False) -> int:
         self.ensure_index(force=force)
 

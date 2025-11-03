@@ -65,6 +65,12 @@ def ensure_vector_store(force: bool = False) -> Path | None:
             password=settings.es_password,
             verify_certs=settings.es_verify_certs,
         )
+        if not force and backend.has_documents():
+            logger.info(
+                "Elasticsearch index '%s' already populated; skipping re-indexing",
+                settings.es_index,
+            )
+            return None
         chunk_iterator = iter_chunks(extracted_dirs)
         indexed = backend.index_documents(chunk_iterator, force=force)
         logger.info("Indexed %d document chunks into Elasticsearch index '%s'", indexed, settings.es_index)
