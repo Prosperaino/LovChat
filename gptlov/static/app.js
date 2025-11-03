@@ -5,6 +5,68 @@ const results = document.getElementById("results");
 const answerBlock = document.getElementById("answer");
 const sourcesContainer = document.getElementById("sources");
 const suggestions = document.querySelectorAll("[data-question]");
+const progressBar = document.getElementById("progress-bar");
+const progressContainer = progressBar ? progressBar.parentElement : null;
+
+const BASELINE_DURATION_MS = 4500;
+const MIN_EXPECTED_MS = 1200;
+const MAX_HISTORY = 12;
+const durationSamples = [];
+let progressHideTimeout = null;
+
+const formatSeconds = (ms) => (ms / 1000).toFixed(1);
+
+const estimateDuration = () => {
+  if (!durationSamples.length) {
+    return BASELINE_DURATION_MS;
+  }
+  const sum = durationSamples.reduce((acc, value) => acc + value, 0);
+  const average = sum / durationSamples.length;
+  return Math.max(MIN_EXPECTED_MS, average);
+};
+
+const recordDuration = (duration) => {
+  if (!Number.isFinite(duration) || duration <= 0) {
+    return;
+  }
+  durationSamples.push(duration);
+  if (durationSamples.length > MAX_HISTORY) {
+    durationSamples.shift();
+  }
+};
+
+const startProgress = (expectedMs) => {
+  if (!progressBar || !progressContainer) {
+    return;
+  }
+  if (progressHideTimeout) {
+    clearTimeout(progressHideTimeout);
+    progressHideTimeout = null;
+  }
+  const safeDuration = Math.max(expectedMs, MIN_EXPECTED_MS);
+  progressContainer.classList.add("visible");
+  progressBar.style.transition = "none";
+  progressBar.style.width = "0%";
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      progressBar.style.transition = `width ${safeDuration}ms linear`;
+      progressBar.style.width = "100%";
+    });
+  });
+};
+
+const stopProgress = () => {
+  if (!progressBar || !progressContainer) {
+    return;
+  }
+  progressBar.style.transition = "width 220ms ease-out";
+  progressBar.style.width = "100%";
+  progressHideTimeout = window.setTimeout(() => {
+    progressContainer.classList.remove("visible");
+    progressBar.style.transition = "none";
+    progressBar.style.width = "0%";
+  }, 260);
+};
 
 const renderSources = (sources) => {
   sourcesContainer.innerHTML = "";
@@ -68,6 +130,12 @@ const handleSubmit = async (event) => {
   answerBlock.innerHTML = "";
   sourcesContainer.innerHTML = "";
 
+  const expectedMs = estimateDuration();
+  statusLine.textContent = `Forventer svar om cirka ${formatSeconds(expectedMs)} sekunder…`;
+  startProgress(expectedMs);
+  const startedAt = performance.now();
+  let recordedDuration = false;
+
   try {
     const response = await fetch("/ask", {
       method: "POST",
@@ -87,12 +155,24 @@ const handleSubmit = async (event) => {
     }
     renderSources(payload.sources || []);
     results.classList.add("visible");
-    statusLine.textContent = "Her er svaret ditt:";
+    const durationMs = performance.now() - startedAt;
+    recordDuration(durationMs);
+    recordedDuration = true;
+    const averageMs = estimateDuration();
+    statusLine.textContent = `Her er svaret ditt (tok ${formatSeconds(durationMs)} s, gjennomsnitt ${formatSeconds(
+      averageMs,
+    )} s).`;
   } catch (error) {
     console.error(error);
+    const durationMs = performance.now() - startedAt;
+    if (!recordedDuration) {
+      recordDuration(durationMs);
+      recordedDuration = true;
+    }
     statusLine.textContent =
       "Beklager! Noe gikk galt. Vennligst prøv igjen senere eller kontakt oss hvis problemet vedvarer.";
   } finally {
+    stopProgress();
     setLoading(false);
   }
 };
