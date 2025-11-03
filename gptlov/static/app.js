@@ -16,14 +16,7 @@ let progressHideTimeout = null;
 
 const formatSeconds = (ms) => (ms / 1000).toFixed(1);
 
-const estimateDuration = () => {
-  if (!durationSamples.length) {
-    return BASELINE_DURATION_MS;
-  }
-  const sum = durationSamples.reduce((acc, value) => acc + value, 0);
-  const average = sum / durationSamples.length;
-  return Math.max(MIN_EXPECTED_MS, average);
-};
+const estimateDuration = () => 70000;
 
 const recordDuration = (duration) => {
   if (!Number.isFinite(duration) || duration <= 0) {
