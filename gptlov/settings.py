@@ -37,6 +37,7 @@ class Settings:
         "false",
         "no",
     }
+    cache_size: int = int(_getenv("GPTLOV_CACHE_SIZE") or "64")
     vector_store_url: str | None = _getenv("GPTLOV_VECTOR_STORE_URL")
     archives: tuple[str, ...] = field(default_factory=tuple)
 
@@ -65,6 +66,9 @@ class Settings:
             raise ValueError(
                 "GPTLOV_ES_HOST/ELASTICSEARCH_URL must be set when using the Elasticsearch backend."
             )
+
+        if self.cache_size < 0:
+            raise ValueError("GPTLOV_CACHE_SIZE must be zero or a positive integer.")
 
 
 settings = Settings()

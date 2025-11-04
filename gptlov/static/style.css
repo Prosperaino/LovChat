@@ -341,6 +341,25 @@ button:disabled {
   color: rgba(247, 248, 251, 0.65);
 }
 
+.source-excerpt {
+  font-size: 0.95rem;
+  color: rgba(247, 248, 251, 0.78);
+  background: rgba(6, 18, 32, 0.72);
+  border-radius: 14px;
+  padding: 0.85rem 1rem;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.03);
+  line-height: 1.55;
+}
+
+.source-excerpt p {
+  margin: 0 0 0.75rem;
+}
+
+.source-excerpt p:last-child {
+  margin-bottom: 0;
+}
+
 .source-score {
   font-size: 0.85rem;
   letter-spacing: 0.05em;

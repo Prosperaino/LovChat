@@ -12,3 +12,6 @@ vector_store/
 *.tar
 *.tar.bz2
 *.zip
+
+node_modules/
+labs_app/frontend/build/

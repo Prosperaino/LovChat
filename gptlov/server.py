@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -40,20 +41,6 @@ class AskRequest(BaseModel):
     top_k: Optional[int] = Field(None, description="Number of chunks to retrieve")
 
 
-class SourceResponse(BaseModel):
-    title: Optional[str]
-    refid: Optional[str]
-    source_path: str
-    score: float
-    content: str
-
-
-class AskResponse(BaseModel):
-    answer: str
-    answer_html: str
-    sources: List[SourceResponse]
-
-
 @app.on_event("startup")
 async def startup_event() -> None:
     global _bot
@@ -78,29 +65,75 @@ def _get_bot() -> GPTLovBot:
     return _bot
 
 
-@app.post("/ask", response_model=AskResponse)
-async def ask(request: AskRequest) -> AskResponse:
+def _format_sse(event_type: str, payload: object) -> bytes:
+    if isinstance(payload, (dict, list)):
+        data = json.dumps(payload, ensure_ascii=False)
+    else:
+        data = str(payload)
+    message = f"event: {event_type}\ndata: {data}\n\n"
+    return message.encode("utf-8")
+
+
+@app.post("/ask")
+async def ask(request: AskRequest) -> StreamingResponse:
     bot = _get_bot()
-    loop = asyncio.get_event_loop()
-    result: Dict[str, Any] = await loop.run_in_executor(
-        None, bot.ask, request.question, request.top_k
-    )
+    loop = asyncio.get_running_loop()
+    queue: asyncio.Queue[bytes | object] = asyncio.Queue()
+    sentinel = object()
 
-    sources = [
-        SourceResponse(
-            title=entry.get("title"),
-            refid=entry.get("refid"),
-            source_path=entry.get("source_path", ""),
-            score=float(entry.get("score", 0.0)),
-            content=entry.get("content", ""),
-        )
-        for entry in result.get("contexts", [])
-    ]
+    def enqueue(event_type: str, payload: object) -> None:
+        message = _format_sse(event_type, payload)
+        loop.call_soon_threadsafe(queue.put_nowait, message)
 
-    return AskResponse(
-        answer=result["answer"],
-        answer_html=result.get("answer_html", result["answer"]),
-        sources=sources,
+    def stream_worker() -> None:
+        try:
+            for event in bot.ask_streaming(request.question, request.top_k):
+                event_type = event.get("type") if isinstance(event, dict) else None
+                if not event_type:
+                    continue
+                if event_type == "status":
+                    message = event.get("message")
+                    if message:
+                        enqueue("status", str(message))
+                elif event_type == "contexts":
+                    contexts = event.get("contexts") or []
+                    enqueue("contexts", contexts)
+                elif event_type == "chunk":
+                    text = event.get("text")
+                    if text:
+                        enqueue("chunk", {"text": text})
+                elif event_type == "answer_html":
+                    html = event.get("html")
+                    if html:
+                        enqueue("answer_html", {"html": html})
+                elif event_type == "done":
+                    enqueue("done", True)
+                    break
+        except Exception as exc:  # pragma: no cover - defensive path
+            logger.exception("Streaming failed, aborting SSE response")
+            enqueue("error", {"message": str(exc)})
+        finally:
+            loop.call_soon_threadsafe(queue.put_nowait, sentinel)
+
+    loop.run_in_executor(None, stream_worker)
+
+    async def event_generator():
+        while True:
+            message = await queue.get()
+            if message is sentinel:
+                break
+            if isinstance(message, bytes):
+                yield message
+
+    headers = {
+        "Cache-Control": "no-cache",
+        "Connection": "keep-alive",
+        "X-Accel-Buffering": "no",
+    }
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers=headers,
     )
 
 

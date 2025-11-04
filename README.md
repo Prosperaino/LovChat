@@ -125,6 +125,41 @@ uvicorn gptlov.server:app --reload --port 8000
 
 Visit `http://localhost:8000/docs` for the interactive Swagger UI.
 
+## Experimental Labs UI (Elastic example adaptation)
+
+The repository now includes an experimental user interface in `labs_app/` based on
+Elastic's [chatbot RAG example](https://github.com/elastic/elasticsearch-labs/tree/main/example-apps/chatbot-rag-app).
+It keeps the streaming chat UX from the sample app while delegating retrieval and answer
+generation to `GPTLovBot`.
+
+1. Build the React frontend (requires Node >= 18 and Yarn):
+   ```bash
+   cd labs_app/frontend
+   yarn install
+   REACT_APP_API_HOST=/api yarn build
+   ```
+   The build artefacts end up in `labs_app/frontend/build` which Flask serves as static files.
+2. Start the Flask API (after activating your Python environment and installing the project):
+   ```bash
+   export FLASK_APP=labs_app.api.app
+   flask run --debug --port 4000
+   ```
+   The server exposes `GET /health` and the streaming endpoint `POST /api/chat`. The backend
+   will lazily prepare the GPTLov vector store on first use, so the initial request may take a
+   short while while archives are downloaded or the store loads from disk.
+3. Open `http://localhost:4000/` to try the labs experience. The chat panel streams responses and
+   highlights matching sources in a collapsible panel.
+
+For development you can run the React dev server instead:
+
+```bash
+cd labs_app/frontend
+REACT_APP_API_HOST=http://localhost:4000/api yarn start
+```
+
+Feel free to customise the React components (`labs_app/frontend/src/`) or swap out the API host to
+target a deployed GPTLov backend.
+
 ## Deploy to Render
 
 1. Push this repository to GitHub (already under `Prosperaino/GPTLov`).
