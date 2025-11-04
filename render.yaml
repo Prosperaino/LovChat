@@ -3,7 +3,19 @@ services:
     name: gptlov
     env: python
     plan: free
-    buildCommand: pip install --upgrade pip && pip install -e .
+    buildCommand: |
+      pip install --upgrade pip
+      pip install -e .
+      cd labs_app/frontend
+      if command -v corepack >/dev/null 2>&1; then
+        corepack enable
+      fi
+      if ! command -v yarn >/dev/null 2>&1; then
+        echo "Yarn is required to build the labs frontend. Install Node 18+ or add Yarn to the environment." >&2
+        exit 1
+      fi
+      yarn install --frozen-lockfile
+      REACT_APP_API_HOST=/api yarn build
     startCommand: uvicorn gptlov.server:app --host 0.0.0.0 --port 10000
     autoDeploy: true
     envVars:
