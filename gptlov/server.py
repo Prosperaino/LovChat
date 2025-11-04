@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -300,8 +300,8 @@ async def root() -> HTMLResponse:
     return HTMLResponse(content=html)
 
 
-@app.get("/{path:path}", include_in_schema=False)
-async def spa_assets(path: str) -> HTMLResponse | FileResponse:
+@app.get("/{path:path}", include_in_schema=False, response_model=None)
+async def spa_assets(path: str) -> Response:
     if path.startswith("api/"):
         raise HTTPException(status_code=404, detail="Not found")
     candidate = _frontend_dir / path
