@@ -55,6 +55,62 @@ _ALLOWED_ATTRS["a"] = sorted(set(_ALLOWED_ATTRS.get("a", [])) | {"href", "title"
 _ALLOWED_ATTRS["th"] = sorted(set(_ALLOWED_ATTRS.get("th", [])) | {"scope", "colspan", "rowspan", "align"})
 _ALLOWED_ATTRS["td"] = sorted(set(_ALLOWED_ATTRS.get("td", [])) | {"colspan", "rowspan", "align"})
 
+_STOPWORDS = {
+    "en",
+    "ei",
+    "et",
+    "er",
+    "ett",
+    "for",
+    "fra",
+    "han",
+    "henne",
+    "hennes",
+    "hva",
+    "hvem",
+    "hvilke",
+    "hvilken",
+    "hvordan",
+    "hvorfor",
+    "hvor",
+    "jeg",
+    "kan",
+    "men",
+    "med",
+    "mot",
+    "når",
+    "og",
+    "om",
+    "oss",
+    "på",
+    "så",
+    "som",
+    "til",
+    "var",
+    "ved",
+    "vi",
+    "å",
+}
+
+_KEYWORD_SUFFIXES = (
+    "enes",
+    "ende",
+    "ane",
+    "ene",
+    "ens",
+    "ers",
+    "ets",
+    "ere",
+    "et",
+    "en",
+    "er",
+    "ar",
+    "es",
+    "a",
+    "e",
+    "s",
+)
+
 
 @dataclass
 class RetrievalResult:
@@ -115,6 +171,188 @@ class GPTLovBot:
             if chunk:
                 yield chunk
             pointer += chunk_size
+
+    def _extract_question_keywords(self, question: str) -> set[str]:
+        tokens = re.findall(r"[0-9a-zæøå\-]+", question.lower())
+        keywords: set[str] = set()
+        for token in tokens:
+            cleaned = token.strip("-")
+            if len(cleaned) < 4 or cleaned in _STOPWORDS:
+                continue
+            keywords.add(cleaned)
+            if "-" in cleaned:
+                for part in cleaned.split("-"):
+                    part = part.strip()
+                    if len(part) >= 4 and part not in _STOPWORDS:
+                        keywords.add(part)
+        return keywords
+
+    def _keyword_variants(self, term: str) -> set[str]:
+        variants: set[str] = {term}
+        if "-" in term:
+            variants.update(
+                part.strip()
+                for part in term.split("-")
+                if len(part.strip()) >= 4
+            )
+        for suffix in _KEYWORD_SUFFIXES:
+            if len(term) - len(suffix) >= 4 and term.endswith(suffix):
+                variants.add(term[: -len(suffix)])
+        if len(term) >= 8:
+            variants.add(term[:6])
+            variants.add(term[-6:])
+        if len(term) >= 6:
+            variants.add(term[:5])
+            variants.add(term[-5:])
+        if len(term) >= 4:
+            variants.add(term[:4])
+        cleaned = {
+            candidate.strip()
+            for candidate in variants
+            if len(candidate.strip()) >= 3 and candidate.strip() not in _STOPWORDS
+        }
+        return cleaned or {term}
+
+    def _keyword_match_strength(self, term: str, variant: str) -> float:
+        if not variant:
+            return 0.0
+
+        base_length = max(len(term), 1)
+        variant_length = len(variant)
+
+        if variant == term:
+            return 1.0
+        if term.startswith(variant):
+            ratio = variant_length / base_length
+            if ratio >= 0.75:
+                return 0.9
+            if ratio >= 0.5:
+                return 0.72
+            return 0.56
+        if term.endswith(variant):
+            ratio = variant_length / base_length
+            if ratio >= 0.75:
+                return 0.68
+            if ratio >= 0.5:
+                return 0.5
+            return 0.34
+        if variant in term:
+            ratio = variant_length / base_length
+            if ratio >= 0.5:
+                return 0.46
+            return 0.3
+        return 0.25
+
+    def _augment_law_terms(
+        self,
+        question: str,
+        keyword_terms: set[str],
+        law_terms: set[str],
+    ) -> tuple[set[str], set[str]]:
+        augmented = set(law_terms)
+        implied: set[str] = set()
+        lowered = question.lower()
+
+        if "klag" in lowered:
+            implied.add("forvaltningsloven")
+            augmented.add("forvaltningsloven")
+
+        if "bygg" in lowered or any(term.startswith("bygg") for term in keyword_terms):
+            implied.update({"plan- og bygningsloven", "byggesaksforskriften"})
+            augmented.update({"plan- og bygningsloven", "byggesaksforskriften"})
+
+        return augmented, implied
+
+    def _calculate_keyword_boost(
+        self,
+        keyword_terms: set[str],
+        *,
+        title: str,
+        path: str,
+        refid: str,
+        content: str,
+        normalized_content: str,
+    ) -> float:
+        if not keyword_terms:
+            return 0.0
+
+        term_strengths: dict[str, float] = {}
+        matched_in_title = False
+
+        for term in keyword_terms:
+            root = term[:4] if len(term) >= 4 else term
+            best_strength = 0.0
+            matched_title_term = False
+            root_match = False
+
+            for variant in self._keyword_variants(term):
+                candidate_values = {
+                    variant,
+                    variant.replace("-", " "),
+                    variant.replace("-", ""),
+                    variant.replace(" ", ""),
+                }
+
+                for candidate in list(candidate_values):
+                    stripped = candidate.strip()
+                    if len(stripped) < 3:
+                        candidate_values.discard(candidate)
+                    else:
+                        candidate_values.add(stripped)
+
+                for candidate in candidate_values:
+                    if not candidate:
+                        continue
+
+                    strength = 0.0
+                    in_title = candidate in title
+                    in_ref = candidate in refid or candidate in path
+                    in_content = (
+                        candidate in content or candidate in normalized_content
+                    )
+
+                    if in_title or in_ref or in_content:
+                        strength = self._keyword_match_strength(term, candidate)
+
+                    if not strength:
+                        continue
+
+                    if in_title:
+                        matched_title_term = True
+
+                    if root and (
+                        root in candidate
+                        or root in title
+                        or root in path
+                        or root in refid
+                        or root in content
+                        or root in normalized_content
+                    ):
+                        root_match = True
+
+                    if strength > best_strength:
+                        best_strength = strength
+
+                    if best_strength >= 0.95:
+                        break
+
+            if best_strength > 0:
+                if root_match:
+                    best_strength = min(best_strength + 0.25, 1.2)
+                else:
+                    best_strength = min(best_strength, 0.12)
+                term_strengths[term] = best_strength
+                if matched_title_term:
+                    matched_in_title = True
+
+        if not term_strengths:
+            return -0.34
+
+        total_strength = sum(term_strengths.values())
+        boost = min(0.18 * total_strength, 0.5)
+        if matched_in_title:
+            boost += 0.12
+        return boost
 
     def _build_prompt_payload(
         self, question: str, context_blocks: List[RetrievalResult]
@@ -255,7 +493,14 @@ class GPTLovBot:
 
     def retrieve(self, question: str, top_k: int | None = None) -> List[RetrievalResult]:
         top_k = top_k or settings.top_k
-        law_terms, paragraph_terms, chapter_terms = self._extract_query_hints(question)
+        (
+            law_terms,
+            paragraph_terms,
+            chapter_terms,
+            keyword_terms,
+            implied_law_terms,
+        ) = self._extract_query_hints(question)
+        keyword_roots = {term[:4] for term in keyword_terms if len(term) >= 4}
 
         if self.mode == "elasticsearch":
             return self._retrieve_elasticsearch(
@@ -264,6 +509,9 @@ class GPTLovBot:
                 law_terms=law_terms,
                 paragraph_terms=paragraph_terms,
                 chapter_terms=chapter_terms,
+                keyword_terms=keyword_terms,
+                implied_law_terms=implied_law_terms,
+                keyword_roots=keyword_roots,
             )
 
         if not self.store:
@@ -300,9 +548,13 @@ class GPTLovBot:
             law_terms=law_terms,
             paragraph_terms=paragraph_terms,
             chapter_terms=chapter_terms,
+            keyword_terms=keyword_terms,
+            implied_law_terms=implied_law_terms,
+            keyword_roots=keyword_roots,
+            question_lower=question.lower(),
             candidates=candidates,
         )
-        return reranked[:top_k]
+        return self._select_top_candidates(reranked, top_k)
 
     def _retrieve_elasticsearch(
         self,
@@ -312,6 +564,9 @@ class GPTLovBot:
         law_terms: set[str],
         paragraph_terms: set[str],
         chapter_terms: set[str],
+        keyword_terms: set[str],
+        implied_law_terms: set[str],
+        keyword_roots: set[str],
     ) -> List[RetrievalResult]:
         if not self._es_backend:
             raise RuntimeError("Elasticsearch backend is not configured.")
@@ -328,13 +583,17 @@ class GPTLovBot:
             law_terms=law_terms,
             paragraph_terms=paragraph_terms,
             chapter_terms=chapter_terms,
+            keyword_terms=keyword_terms,
+            implied_law_terms=implied_law_terms,
+            keyword_roots=keyword_roots,
+            question_lower=question.lower(),
             candidates=candidates,
         )
-        return reranked[:top_k]
+        return self._select_top_candidates(reranked, top_k)
 
     def _extract_query_hints(
         self, question: str
-    ) -> tuple[set[str], set[str], set[str]]:
+    ) -> tuple[set[str], set[str], set[str], set[str]]:
         law_terms = {
             match.group(1).strip().lower()
             for match in self._LAW_NAME_PATTERN.finditer(question)
@@ -347,7 +606,11 @@ class GPTLovBot:
             match.group(1).strip().lower()
             for match in self._CHAPTER_PATTERN.finditer(question)
         }
-        return law_terms, paragraph_terms, chapter_terms
+        keyword_terms = self._extract_question_keywords(question)
+        law_terms, implied_law_terms = self._augment_law_terms(
+            question, keyword_terms, law_terms
+        )
+        return law_terms, paragraph_terms, chapter_terms, keyword_terms, implied_law_terms
 
     def _find_metadata_matches(self, law_terms: set[str], scores: np.ndarray) -> list[int]:
         if not self.store:
@@ -410,6 +673,10 @@ class GPTLovBot:
         law_terms: set[str],
         paragraph_terms: set[str],
         chapter_terms: set[str],
+        keyword_terms: set[str],
+        implied_law_terms: set[str],
+        keyword_roots: set[str],
+        question_lower: str,
         candidates: List[RetrievalResult],
     ) -> List[RetrievalResult]:
         """Apply simple heuristics to favour chunks that directly match the query metadata."""
@@ -467,6 +734,75 @@ class GPTLovBot:
                         boost += 0.08
                         break
 
+            keyword_boost = self._calculate_keyword_boost(
+                keyword_terms,
+                title=title,
+                path=path,
+                refid=refid,
+                content=content,
+                normalized_content=normalized_content,
+            )
+            boost += keyword_boost
+
+            if implied_law_terms:
+                for implied in implied_law_terms:
+                    implied_lower = implied.lower()
+                    if (
+                        implied_lower
+                        and (
+                            implied_lower in title
+                            or implied_lower in refid
+                            or implied_lower in path
+                        )
+                    ):
+                        boost += 0.22
+                        break
+
+            if keyword_roots:
+                has_root_match = False
+                for root in keyword_roots:
+                    root_lower = root.lower()
+                    if not root_lower:
+                        continue
+                    if (
+                        root_lower in title
+                        or root_lower in refid
+                        or root_lower in path
+                        or root_lower in content
+                        or root_lower in normalized_content
+                    ):
+                        has_root_match = True
+                        break
+                if not has_root_match:
+                    boost -= 0.26
+
+            if "bygg" in question_lower:
+                if (
+                    "skatt" in title
+                    or "skatt" in refid
+                    or "skatt" in path
+                ):
+                    boost -= 0.9
+                elif (
+                    "valg" in title
+                    or "valg" in refid
+                    or "valg" in path
+                ):
+                    boost -= 0.55
+                else:
+                    domain_hits = any(
+                        keyword in title or keyword in refid or keyword in path
+                        for keyword in ("bygg", "forvalt", "plan- og bygnings", "søknad")
+                    )
+                    if not domain_hits:
+                        boost -= 0.35
+
+            if "klag" in question_lower:
+                if "klag" in content:
+                    boost += 0.2
+                else:
+                    boost -= 0.18
+
             adjusted_score = result.score + boost
             adjusted.append((adjusted_score, result))
 
@@ -479,6 +815,46 @@ class GPTLovBot:
             )
             for score, item in adjusted
         ]
+
+    def _source_key(self, metadata: Dict[str, Any]) -> str:
+        refid = str(metadata.get("refid") or "").lower()
+        if refid:
+            return refid.split("#", 1)[0]
+        title = str(metadata.get("title") or "").lower()
+        if title:
+            return title
+        path = str(metadata.get("source_path") or "").lower()
+        return path
+
+    def _select_top_candidates(
+        self, candidates: List[RetrievalResult], top_k: int
+    ) -> List[RetrievalResult]:
+        if top_k <= 0:
+            return []
+
+        per_source_limit = 2 if top_k > 1 else 1
+        counts: Dict[str, int] = {}
+        selected: list[RetrievalResult] = []
+
+        for item in candidates:
+            key = self._source_key(item.metadata)
+            count = counts.get(key, 0)
+            if count >= per_source_limit:
+                continue
+            counts[key] = count + 1
+            selected.append(item)
+            if len(selected) >= top_k:
+                return selected
+
+        if len(selected) < top_k:
+            for item in candidates:
+                if item in selected:
+                    continue
+                selected.append(item)
+                if len(selected) >= top_k:
+                    break
+
+        return selected[:top_k]
 
     @staticmethod
     def _extract_value(obj: Any, key: str, default: Any = None) -> Any:
