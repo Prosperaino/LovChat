@@ -7,7 +7,7 @@ import { ChatMessageType } from 'types'
 interface ChatProps {
   status: AppStatus
   messages: ChatMessageType[]
-  summary: ChatMessageType
+  summary?: ChatMessageType
   onSend: (message: string) => void
   onAbortRequest: () => void
   onSourceClick: (sourceName: string) => void

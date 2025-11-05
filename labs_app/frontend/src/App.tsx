@@ -12,6 +12,7 @@ import { Chat } from 'components/chat/chat'
 import SearchInput from 'components/search_input'
 import { SearchResults } from './components/search_results'
 import { StatusTimeline } from './components/status_timeline'
+import { ChatMessageType } from 'types'
 
 const SUGGESTED_QUERIES = [
   'Hva sier arbeidsmiljøloven om overtid?',
@@ -51,7 +52,24 @@ const App = () => {
   const sessionId = useAppSelector((state) => state.sessionId)
   const statusMessages = useAppSelector((state) => state.statusMessages)
   const conversation = useAppSelector((state) => state.conversation)
-  const [summary, ...messages] = conversation
+  const { summary, messages } = useMemo(() => {
+    if (!conversation.length) {
+      return { summary: undefined, messages: [] as ChatMessageType[] }
+    }
+
+    const lastAssistantIndex = [...conversation]
+      .reverse()
+      .findIndex((message) => !message.isHuman)
+
+    if (lastAssistantIndex === -1) {
+      return { summary: undefined, messages: conversation }
+    }
+
+    const summaryIndex = conversation.length - 1 - lastAssistantIndex
+    const summary = conversation[summaryIndex]
+    const remaining = conversation.filter((_, index) => index !== summaryIndex)
+    return { summary, messages: remaining }
+  }, [conversation])
   const [searchQuery, setSearchQuery] = useState<string>('')
 
   const handleSearch = (query: string) => {
